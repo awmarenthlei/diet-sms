@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DIET Serchhip: teacher</title><link rel="stylesheet" href="/style.css"></head>
+<body><header class="top"><h1>DIET Serchhip</h1><div><span class="who" id="who"></span> <button class="ghost sm" id="out">Log out</button></div></header>
+<main><div class="card"><h2>Coming soon</h2><p class="muted">This page is built in the next phase.</p></div></main>
+<script type="module">
+import { requireUser, logout } from "/common.js";
+const roles = "teacher" === "student" ? ["student"] : ["teacher", "coordinator"];
+const me = await requireUser(roles);
+document.getElementById("who").textContent = me.name;
+document.getElementById("out").onclick = logout;
+</script></body></html>
