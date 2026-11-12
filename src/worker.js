@@ -268,6 +268,26 @@ handlers["POST /api/admin/students/delete"] = async (request, env) => {
   return json({ ok: true });
 };
 
+// Delete many students at once: everyone, or only one class. Removes their logins, attendance, marks and past results.
+handlers["POST /api/admin/students/delete-many"] = async (request, env) => {
+  const body = await readBody(request);
+  if (!body || body.confirm !== "DELETE") return fail(400, "Type DELETE to confirm");
+  const cls = String(body.class || "");
+  if (cls && !CLASSES.includes(cls) && cls !== "Alumni") return fail(400, "Unknown class");
+  const where = cls ? "WHERE class = ?" : "";
+  const bind = (st) => (cls ? st.bind(cls) : st);
+  const count = await bind(env.DB.prepare(`SELECT COUNT(*) AS n FROM students ${where}`)).first();
+  const ids = `SELECT student_id FROM students ${where}`;
+  await env.DB.batch([
+    bind(env.DB.prepare(`DELETE FROM att_marks WHERE student_id IN (${ids})`)),
+    bind(env.DB.prepare(`DELETE FROM marks WHERE student_id IN (${ids})`)),
+    bind(env.DB.prepare(`DELETE FROM past_results WHERE student_id IN (${ids})`)),
+    bind(env.DB.prepare(`DELETE FROM users WHERE role = 'student' AND student_id IN (${ids})`)),
+    bind(env.DB.prepare(`DELETE FROM students ${where}`)),
+  ]);
+  return json({ ok: true, deleted: count.n });
+};
+
 handlers["POST /api/admin/users/delete"] = async (request, env) => {
   const body = await readBody(request);
   const r = await env.DB.prepare("DELETE FROM users WHERE id = ? AND role IN ('teacher','coordinator')").bind(Number(body && body.userId)).run();
@@ -385,7 +405,7 @@ handlers["POST /api/admin/past-results/import"] = async (request, env) => {
 
 // Who may call what. Anything not listed here needs no login (login, logout, setup).
 const ADMIN_ONLY = [
-  "GET /api/admin/students", "POST /api/admin/students/import", "POST /api/admin/students/delete", "POST /api/admin/users/delete",
+  "GET /api/admin/students", "POST /api/admin/students/import", "POST /api/admin/students/delete", "POST /api/admin/students/delete-many", "POST /api/admin/users/delete",
   "GET /api/admin/subjects", "POST /api/admin/subjects", "POST /api/admin/subjects/assign", "POST /api/admin/subjects/delete",
   "GET /api/admin/timetable", "POST /api/admin/timetable",
   "GET /api/admin/promote-preview", "POST /api/admin/promote", "POST /api/admin/clear-attendance",
