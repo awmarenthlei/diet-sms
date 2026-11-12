@@ -1,0 +1,14 @@
+name = "diet-sms"
+main = "src/worker.js"
+compatibility_date = "2026-01-01"
+
+# The web pages live in /public and are served free of charge.
+# Only /api/* requests run the Worker code.
+[assets]
+directory = "./public"
+run_worker_first = ["/api/*"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "diet-sms-db"
+database_id = "PASTE-YOUR-DATABASE-ID-HERE"

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DIET Serchhip: Login</title><link rel="stylesheet" href="/style.css"></head>
+<body><div class="narrow"><div class="card">
+  <h2 style="font-size:20px">DIET Serchhip</h2>
+  <p class="muted" style="margin-top:0">Students, teachers and admin log in here.</p>
+  <form id="f">
+    <label for="id">Login ID</label>
+    <input id="id" autocomplete="username" autocapitalize="off" spellcheck="false" required placeholder="Students: e.g. III_Sem_06. Teachers: your e-mail">
+    <label for="pw">Password</label>
+    <input id="pw" type="password" autocomplete="current-password" required>
+    <p id="msg" class="msg"></p>
+    <button id="go" style="width:100%;margin-top:8px">Log in</button>
+  </form>
+  <p class="muted" style="margin:14px 0 0">Forgot your password? Ask the admin to reset it. Your Login ID does not change when you are promoted.</p>
+</div></div>
+<script type="module">
+import { api, homeFor, say } from "/common.js";
+try { const me = (await api("/api/me")).user; location.replace(me.mustChange ? "/change-password.html" : homeFor(me.role)); } catch {}
+document.getElementById("f").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const msg = document.getElementById("msg"), go = document.getElementById("go");
+  go.disabled = true; say(msg, "Logging in...");
+  try {
+    const { user } = await api("/api/login", { loginId: document.getElementById("id").value, password: document.getElementById("pw").value });
+    location.replace(user.mustChange ? "/change-password.html" : homeFor(user.role));
+  } catch (err) { say(msg, err.message, "err"); go.disabled = false; }
+});
+</script></body></html>
