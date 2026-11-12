@@ -11,4 +11,4 @@ run_worker_first = ["/api/*"]
 [[d1_databases]]
 binding = "DB"
 database_name = "diet-sms-db"
-database_id = "awma@serchhip^06$apps$2026"
+database_id = "51371f53-bbc1-427c-a36a-fca28c1ab210"
