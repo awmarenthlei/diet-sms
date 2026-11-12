@@ -14,7 +14,7 @@
 <section id="t-students">
   <div class="card">
     <h2>Import students from Excel</h2>
-    <p class="muted" style="margin-top:0">Columns: <b>name, rollNo, class, semester, batch</b>. Class is I Sem, II Sem, III Sem or IV Sem. Existing students are updated, and their passwords are not changed. New students get the password <b>&lt;Login ID&gt;_123</b> and must change it at first login.</p>
+    <p class="muted" style="margin-top:0">Columns: <b>name, rollNo, class, batch</b> (the semester number is set automatically). Class is exactly <b>I Sem, II Sem, III Sem or IV Sem</b>. Roll numbers like 01, 02. Existing students are updated, and their passwords are not changed. New students get the password <b>&lt;Login ID&gt;_123</b> and must change it at first login.</p>
     <div class="row"><input type="file" id="stu-file" accept=".xlsx,.xls,.csv"><button id="stu-import">Import</button></div>
     <div class="log hidden" id="stu-log"></div>
   </div>
