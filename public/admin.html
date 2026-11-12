@@ -25,6 +25,12 @@
     <div class="tablewrap"><table><thead><tr><th>Login ID</th><th>Name</th><th>Roll</th><th>Class</th><th>Batch</th><th></th></tr></thead><tbody id="stu-body"></tbody></table></div>
     <p class="msg" id="stu-msg"></p>
   </div>
+  <div class="card">
+    <h3>Delete students in bulk</h3>
+    <p class="muted" style="margin-top:0">Removes the students <b>and</b> their logins, attendance, marks and past results. Teachers, subjects and the timetable are not touched. Use it to clear a test import. It cannot be undone.</p>
+    <div class="row" style="max-width:460px"><div><label>Which students</label><select id="del-class"><option value="">All students</option><option>I Sem</option><option>II Sem</option><option>III Sem</option><option>IV Sem</option><option>Alumni</option></select></div><button class="danger" id="del-btn">Delete...</button></div>
+    <p class="msg" id="del-msg"></p>
+  </div>
 </section>
 
 <!-- TEACHERS -->
@@ -254,6 +260,15 @@ $("pro-btn").onclick = async () => {
   const typed = await askText({ title: "Promote all students", note: "Everyone moves up one class. Type PROMOTE in capital letters to confirm.", label: "Confirm", ok: "Promote" });
   if (typed === null) return;
   await run(msg, async () => { const r = await api("/api/admin/promote", { confirm: typed.trim() }); say(msg, `Done. ${r.promoted} students promoted. Next: add the new semester's subjects, teachers and timetable.`, "ok"); await Promise.all([loadStudents(), loadPromote()]); });
+};
+$("del-btn").onclick = async () => {
+  const msg = $("del-msg"), cls = $("del-class").value; say(msg, "");
+  const label = cls ? `ALL ${cls} students` : "ALL students";
+  const n = students.filter((s) => !cls || s.class === cls).length;
+  if (!n) return say(msg, "There are no students to delete.", "err");
+  const typed = await askText({ title: `Delete ${label}?`, note: `${n} students, with their logins, attendance, marks and past results, will be permanently deleted. Type DELETE in capital letters to confirm.`, label: "Confirm", ok: "Delete" });
+  if (typed === null) return;
+  await run(msg, async () => { const r = await api("/api/admin/students/delete-many", { confirm: typed.trim(), class: cls }); say(msg, `Deleted ${r.deleted} students.`, "ok"); await Promise.all([loadStudents(), loadPromote()]); });
 };
 $("clr-btn").onclick = async () => {
   const msg = $("clr-msg"), d = $("clr-date").value;
