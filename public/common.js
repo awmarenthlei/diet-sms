@@ -58,3 +58,28 @@ export function askText({ title, note = "", label = "", type = "text", ok = "OK"
     input.focus();
   });
 }
+
+// Institution logo (header) and developer credit (footer) on every page.
+// Every page loads this file, so future pages get both automatically.
+// Put the logo file at public/logo.png. If it is missing, the logo is simply left out.
+(() => {
+  const logo = document.createElement("img");
+  logo.src = "/logo.png";
+  logo.alt = "Institution logo";
+  logo.onerror = () => logo.remove();
+  const header = document.querySelector("header.top");
+  if (header) {
+    logo.className = "logo";
+    const h1 = header.querySelector("h1");
+    h1.classList.add("brand");
+    h1.prepend(logo);
+  } else {
+    logo.className = "logo big";
+    const holder = document.querySelector(".narrow");
+    if (holder) holder.prepend(logo);
+  }
+  const foot = document.createElement("footer");
+  foot.className = "credit";
+  foot.textContent = "Develop by R LALRINAWMA";
+  document.body.append(foot);
+})();
