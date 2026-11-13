@@ -99,6 +99,13 @@
 </section>
 
 </main>
+<dialog id="sub-dlg"><form id="sd-form"><h3 style="margin:0 0 6px">Edit subject</h3>
+  <label>Subject ID (cannot be changed)</label><input id="sd-id" readonly>
+  <label>Name</label><input id="sd-name" required>
+  <label>Class</label><select id="sd-class"><option>I Sem</option><option>II Sem</option><option>III Sem</option><option>IV Sem</option></select>
+  <p class="muted">Changing the class does not move attendance already marked.</p>
+  <p class="msg" id="sd-msg"></p>
+  <div class="btns"><button type="button" class="ghost" id="sd-cancel">Cancel</button><button type="submit">Save</button></div></form></dialog>
 <script type="module">
 import { api, requireUser, logout, esc, say, askText } from "/common.js";
 const me = await requireUser(["admin"]);
@@ -200,10 +207,18 @@ async function loadSubjects() { subjects = (await api("/api/admin/subjects")).su
 function drawSubjects() {
   const opts = (sel) => `<option value="">Unassigned</option>` + teachers.map((t) => `<option value="${t.id}" ${t.id === sel ? "selected" : ""}>${esc(t.name)}</option>`).join("");
   $("sub-body").innerHTML = subjects.map((s) => `<tr><td>${esc(s.subjectId)}</td><td>${esc(s.name)}</td><td>${esc(s.class)}</td>
-    <td><select data-assign="${esc(s.subjectId)}">${opts(s.teacherId)}</select></td><td><button class="danger sm" data-del="${esc(s.subjectId)}">Delete</button></td></tr>`).join("");
+    <td><select data-assign="${esc(s.subjectId)}">${opts(s.teacherId)}</select></td><td class="actions"><button class="ghost sm" data-edit="${esc(s.subjectId)}">Edit</button><button class="danger sm" data-del="${esc(s.subjectId)}">Delete</button></td></tr>`).join("");
   $("tch-subj").innerHTML = `<option value="">None</option>` + subjects.map((s) => `<option value="${esc(s.subjectId)}">${esc(s.subjectId)} (${esc(s.class)})</option>`).join("");
   drawTimetable();
 }
+$("sd-cancel").onclick = () => $("sub-dlg").close();
+$("sd-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  await run($("sd-msg"), async () => {
+    await api("/api/admin/subjects/update", { subjectId: $("sd-id").value, name: $("sd-name").value, class: $("sd-class").value });
+    $("sub-dlg").close(); say($("sub-msg"), `Subject ${$("sd-id").value} updated.`, "ok"); await loadSubjects();
+  });
+});
 $("sub-form").addEventListener("submit", async (e) => {
   e.preventDefault(); const msg = $("sub-msg");
   await run(msg, async () => {
@@ -216,6 +231,12 @@ $("sub-body").addEventListener("change", async (e) => {
   await run($("sub-msg"), async () => { await api("/api/admin/subjects/assign", { subjectId: e.target.dataset.assign, teacherId: e.target.value || null }); say($("sub-msg"), "Teacher assigned.", "ok"); await loadTeachers(); });
 });
 $("sub-body").addEventListener("click", async (e) => {
+  const ed = e.target.dataset.edit;
+  if (ed) {
+    const s = subjects.find((x) => x.subjectId === ed); if (!s) return;
+    $("sd-id").value = s.subjectId; $("sd-name").value = s.name; $("sd-class").value = s.class; say($("sd-msg"), "");
+    $("sub-dlg").showModal(); return;
+  }
   const id = e.target.dataset.del; if (!id) return;
   if (!confirm(`Delete subject ${id}?`)) return;
   await run($("sub-msg"), async () => { await api("/api/admin/subjects/delete", { subjectId: id }); await loadSubjects(); });
