@@ -43,3 +43,6 @@ header.top h1.brand{display:flex;align-items:center;gap:10px}
 .logo{height:36px;width:auto;display:block}
 .logo.big{height:72px;margin:0 auto 14px}
 footer.credit{margin-top:auto;padding:14px 16px;text-align:center;font-size:12px;color:var(--mute);border-top:1px solid var(--line);background:var(--card)}
+/* Logos with a white background: blend into light pages, sit on a white badge in dark mode. */
+.logo{mix-blend-mode:multiply}
+@media (prefers-color-scheme:dark){.logo{mix-blend-mode:normal;background:#fff;border-radius:10px;padding:3px}}
