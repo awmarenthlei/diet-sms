@@ -322,6 +322,15 @@ handlers["POST /api/admin/subjects/assign"] = async (request, env) => {
   return r.meta.changes ? json({ ok: true }) : fail(404, "Subject not found");
 };
 
+handlers["POST /api/admin/subjects/update"] = async (request, env) => {
+  const body = await readBody(request);
+  const id = String((body && body.subjectId) || ""), name = String((body && body.name) || "").trim();
+  const cls = String((body && body.class) || "").trim();
+  if (!id || !name || !CLASSES.includes(cls)) return fail(400, "Subject name and class are required");
+  const r = await env.DB.prepare("UPDATE subjects SET name = ?, class = ? WHERE subject_id = ?").bind(name, cls, id).run();
+  return r.meta.changes ? json({ ok: true }) : fail(404, "Subject not found");
+};
+
 handlers["POST /api/admin/subjects/delete"] = async (request, env) => {
   const body = await readBody(request);
   await env.DB.prepare("DELETE FROM subjects WHERE subject_id = ?").bind(String((body && body.subjectId) || "")).run();
@@ -406,7 +415,7 @@ handlers["POST /api/admin/past-results/import"] = async (request, env) => {
 // Who may call what. Anything not listed here needs no login (login, logout, setup).
 const ADMIN_ONLY = [
   "GET /api/admin/students", "POST /api/admin/students/import", "POST /api/admin/students/delete", "POST /api/admin/students/delete-many", "POST /api/admin/users/delete",
-  "GET /api/admin/subjects", "POST /api/admin/subjects", "POST /api/admin/subjects/assign", "POST /api/admin/subjects/delete",
+  "GET /api/admin/subjects", "POST /api/admin/subjects", "POST /api/admin/subjects/assign", "POST /api/admin/subjects/update", "POST /api/admin/subjects/delete",
   "GET /api/admin/timetable", "POST /api/admin/timetable",
   "GET /api/admin/promote-preview", "POST /api/admin/promote", "POST /api/admin/clear-attendance",
   "POST /api/admin/past-results/import",
