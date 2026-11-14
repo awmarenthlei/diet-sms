@@ -1,12 +1,271 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>DIET Serchhip: teacher</title><link rel="stylesheet" href="/style.css"></head>
-<body><header class="top"><h1>DIET Serchhip</h1><div><span class="who" id="who"></span> <button class="ghost sm" id="out">Log out</button></div></header>
-<main><div class="card"><h2>Coming soon</h2><p class="muted">This page is built in the next phase.</p></div></main>
+<title>DIET Serchhip: Teacher</title><link rel="stylesheet" href="/style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script></head>
+<body>
+<header class="top"><h1>DIET Serchhip</h1><div><span class="who" id="who"></span> <button class="ghost sm" id="out">Log out</button></div></header>
+<main>
+  <div class="card" id="pick">
+    <label for="subj" style="margin-top:0">Subject</label>
+    <select id="subj"></select>
+    <p class="muted" id="subj-info" style="margin:8px 0 0"></p>
+    <button class="ghost sm hidden" id="enrol-btn" style="margin-top:8px">Choose students for this paper</button>
+  </div>
+  <div class="card hidden" id="none"><h3>No subjects yet</h3><p class="muted">No subject has been assigned to you. Please ask the admin.</p></div>
+</main>
+<nav class="seg" id="tabs">
+  <button data-t="att" class="on">Attendance</button><button data-t="marks">Marks</button><button data-t="sum">Summary</button><button data-t="tt">Timetable</button>
+</nav>
+<main id="content">
+
+<!-- ATTENDANCE -->
+<section id="t-att">
+  <div class="card">
+    <div class="row2">
+      <div><label for="a-date" style="margin-top:0">Date</label><input type="date" id="a-date"></div>
+      <div><label for="a-period" style="margin-top:0">Period</label><select id="a-period"><option>1</option><option>2</option><option>3</option><option>4</option></select></div>
+    </div>
+    <p class="notice hidden" id="a-notice"></p>
+    <div class="toolbar"><button class="ghost sm" id="a-allp">All present</button><span class="muted" id="a-count"></span></div>
+    <div class="slist" id="a-list"></div>
+    <p class="muted" style="margin:10px 0 0">P = present &nbsp; A = absent &nbsp; &ndash; = not part of this class</p>
+  </div>
+  <div class="savebar"><button id="a-save">Save attendance</button><p class="msg" id="a-msg"></p></div>
+  <div class="card"><h3>Recent classes</h3><p class="muted" style="margin-top:0">Tap one to open it and correct it.</p><div class="hist" id="a-hist"></div></div>
+</section>
+
+<!-- MARKS -->
+<section id="t-marks" class="hidden">
+  <div class="card">
+    <label for="m-exam" style="margin-top:0">Exam</label><select id="m-exam"></select>
+    <div id="m-new"><label for="m-name">Exam name</label><input id="m-name" maxlength="60" placeholder="e.g. Internal 1"></div>
+    <label for="m-max">Full mark</label><input id="m-max" type="number" inputmode="decimal" min="0" step="any" placeholder="e.g. 20">
+    <p class="muted" style="margin:6px 0 0">You decide the full mark for each exam. Leave a student's box empty for no mark.</p>
+    <div class="slist" id="m-list" style="margin-top:8px"></div>
+    <button class="danger sm hidden" id="m-del" style="margin-top:10px">Delete this exam</button>
+  </div>
+  <div class="savebar"><button id="m-save">Save marks</button><p class="msg" id="m-msg"></p></div>
+</section>
+
+<!-- SUMMARY -->
+<section id="t-sum" class="hidden">
+  <div class="card">
+    <h3 id="s-title"></h3><p class="muted" id="s-held" style="margin-top:0"></p>
+    <div class="slist" id="s-list"></div>
+    <p class="muted">Red bar = below 80%.</p>
+    <button class="ghost" id="s-xls" style="width:100%">Download Excel register</button>
+    <p class="msg" id="s-msg"></p>
+  </div>
+</section>
+
+<!-- TIMETABLE -->
+<section id="t-tt" class="hidden"><div id="tt-box"></div></section>
+</main>
+
 <script type="module">
-import { requireUser, logout } from "/common.js";
-const roles = "teacher" === "student" ? ["student"] : ["teacher", "coordinator"];
-const me = await requireUser(roles);
-document.getElementById("who").textContent = me.name;
-document.getElementById("out").onclick = logout;
+import { api, requireUser, logout, esc, say, enrolDialog } from "/common.js";
+const $ = (id) => document.getElementById(id);
+const enc = encodeURIComponent;
+const me = await requireUser(["teacher", "coordinator"]);
+$("who").textContent = me.name;
+$("out").onclick = logout;
+
+const subjects = (await api("/api/teacher/subjects")).subjects;
+let cur = null, rosters = {}, loaded = {}, att = {}, attReq = 0, exams = [];
+const today = new Date().toLocaleDateString("en-CA");
+$("a-date").value = today; $("a-date").max = today;
+
+if (!subjects.length) {
+  $("none").classList.remove("hidden"); $("pick").classList.add("hidden"); $("tabs").classList.add("hidden"); $("content").classList.add("hidden");
+} else {
+  $("subj").innerHTML = subjects.map((s) => `<option value="${esc(s.subjectId)}">${esc(s.name)} (${esc(s.class)})${s.optional ? " - optional" : ""}</option>`).join("");
+  await pickSubject();
+}
+
+async function getRoster() {
+  if (!rosters[cur.subjectId]) rosters[cur.subjectId] = (await api("/api/teacher/roster?subjectId=" + enc(cur.subjectId))).students;
+  return rosters[cur.subjectId];
+}
+
+async function pickSubject() {
+  cur = subjects.find((s) => s.subjectId === $("subj").value);
+  loaded = {};
+  const n = (await getRoster()).length;
+  $("subj-info").innerHTML = `${esc(cur.class)} &middot; ${cur.optional ? `<span class="badge">Optional paper</span> ${n} enrolled` : `${n} students`}`;
+  $("enrol-btn").classList.toggle("hidden", !cur.optional);
+  showTab(document.querySelector("#tabs .on").dataset.t, true);
+}
+$("subj").onchange = pickSubject;
+$("enrol-btn").onclick = () => enrolDialog(cur.subjectId, async () => { delete rosters[cur.subjectId]; await pickSubject(); });
+
+// ---------- tabs ----------
+function showTab(t, force) {
+  document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.t === t));
+  ["att", "marks", "sum", "tt"].forEach((x) => $("t-" + x).classList.toggle("hidden", x !== t));
+  if (loaded[t] && !force) return;
+  loaded[t] = true;
+  ({ att: loadAtt, marks: loadExams, sum: loadSummary, tt: loadTT })[t]().catch((e) => alert(e.message));
+}
+$("tabs").onclick = (e) => { if (e.target.dataset.t) showTab(e.target.dataset.t); };
+
+// ---------- attendance ----------
+const prettyDate = (d) => new Date(d + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+async function loadAtt() {
+  const my = ++attReq, list = $("a-list");
+  say($("a-msg"), ""); $("a-notice").classList.add("hidden");
+  const students = await getRoster();
+  loadHist();
+  if (!students.length) {
+    att = {}; $("a-save").disabled = true; $("a-count").textContent = "";
+    list.innerHTML = `<p class="muted">${cur.optional ? "No students are enrolled in this paper yet. Use the button at the top to choose them." : "There are no students in this class."}</p>`;
+    return;
+  }
+  const date = $("a-date").value, period = $("a-period").value;
+  if (!date) return;
+  const r = await api(`/api/teacher/attendance?subjectId=${enc(cur.subjectId)}&date=${date}&period=${period}`);
+  if (my !== attReq) return;
+  att = {};
+  students.forEach((s) => { att[s.studentId] = r.exists ? (r.statuses[s.studentId] || "na") : "present"; });
+  const note = $("a-notice");
+  note.textContent = r.exists ? `This class was already saved. Saving again replaces it.` : `New class. Everyone starts as present, so only change the absentees.`;
+  note.classList.remove("hidden");
+  $("a-save").disabled = false;
+  list.innerHTML = students.map((s) => `<div class="srow" data-id="${esc(s.studentId)}"><span class="roll">${esc(s.rollNo)}</span><span class="nm">${esc(s.name)}</span>
+    <span class="seg3"><button data-v="present" class="p" title="Present">P</button><button data-v="absent" class="a" title="Absent">A</button><button data-v="na" class="n" title="Not part of this class">&ndash;</button></span></div>`).join("");
+  paint();
+}
+function paint() {
+  document.querySelectorAll("#a-list .srow").forEach((row) => {
+    const v = att[row.dataset.id];
+    row.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.v === v));
+  });
+  const vals = Object.values(att), p = vals.filter((v) => v === "present").length, a = vals.filter((v) => v === "absent").length;
+  $("a-count").textContent = `${p} present, ${a} absent`;
+}
+$("a-list").onclick = (e) => {
+  const b = e.target.closest("button[data-v]"); if (!b) return;
+  att[b.closest(".srow").dataset.id] = b.dataset.v; paint();
+};
+$("a-allp").onclick = () => { Object.keys(att).forEach((k) => { att[k] = "present"; }); paint(); };
+$("a-date").onchange = $("a-period").onchange = () => loadAtt().catch((e) => alert(e.message));
+$("a-save").onclick = async () => {
+  const msg = $("a-msg"), btn = $("a-save");
+  if ($("a-date").value > today) return say(msg, "You cannot mark a future date.", "err");
+  btn.disabled = true; say(msg, "Saving...");
+  try {
+    const r = await api("/api/teacher/attendance", { subjectId: cur.subjectId, date: $("a-date").value, period: Number($("a-period").value), statuses: att });
+    say(msg, `Saved: ${r.present} present, ${r.absent} absent.`, "ok");
+    $("a-notice").textContent = "This class was already saved. Saving again replaces it.";
+    loaded.sum = false; loadHist();
+  } catch (e) { say(msg, e.message, "err"); }
+  btn.disabled = false;
+};
+async function loadHist() {
+  const r = await api(`/api/teacher/attendance-history?subjectId=${enc(cur.subjectId)}`);
+  $("a-hist").innerHTML = r.classes.map((c) => `<button data-d="${c.date}" data-p="${c.period}"><span>${esc(prettyDate(c.date))} &middot; P${c.period}</span><span class="muted">${c.present}/${c.total}</span></button>`).join("") || `<p class="muted">No classes saved yet.</p>`;
+}
+$("a-hist").onclick = (e) => {
+  const b = e.target.closest("button[data-d]"); if (!b) return;
+  $("a-date").value = b.dataset.d; $("a-period").value = b.dataset.p;
+  loadAtt().catch((x) => alert(x.message)); window.scrollTo({ top: 0, behavior: "smooth" });
+};
+
+// ---------- marks ----------
+async function loadExams(select) {
+  exams = (await api(`/api/teacher/marks?subjectId=${enc(cur.subjectId)}`)).exams;
+  $("m-exam").innerHTML = `<option value="">+ New exam</option>` + exams.map((x) => `<option value="${esc(x.exam)}" ${x.exam === select ? "selected" : ""}>${esc(x.exam)} (out of ${x.maxScore})</option>`).join("");
+  await showExam();
+}
+async function showExam() {
+  const name = $("m-exam").value, students = await getRoster();
+  say($("m-msg"), "");
+  $("m-new").classList.toggle("hidden", !!name); $("m-del").classList.toggle("hidden", !name);
+  let scores = {};
+  if (name) {
+    const r = await api(`/api/teacher/marks?subjectId=${enc(cur.subjectId)}&exam=${enc(name)}`);
+    scores = r.scores; $("m-max").value = r.maxScore ?? "";
+  } else { $("m-name").value = ""; $("m-max").value = ""; }
+  $("m-save").disabled = !students.length;
+  $("m-list").innerHTML = students.length ? students.map((s) => `<div class="srow"><span class="roll">${esc(s.rollNo)}</span><span class="nm">${esc(s.name)}</span>
+    <input class="score" data-id="${esc(s.studentId)}" type="number" inputmode="decimal" min="0" step="any" value="${scores[s.studentId] ?? ""}"></div>`).join("")
+    : `<p class="muted">${cur.optional ? "No students are enrolled in this paper yet." : "There are no students in this class."}</p>`;
+  checkMarks();
+}
+function checkMarks() {
+  const max = parseFloat($("m-max").value); let ok = true;
+  document.querySelectorAll(".score").forEach((i) => {
+    const v = i.value === "" ? null : parseFloat(i.value);
+    const bad = v !== null && (isNaN(v) || v < 0 || (!isNaN(max) && v > max));
+    i.classList.toggle("bad", bad); if (bad) ok = false;
+  });
+  return ok;
+}
+$("m-exam").onchange = () => showExam().catch((e) => alert(e.message));
+$("m-list").oninput = checkMarks; $("m-max").oninput = checkMarks;
+$("m-save").onclick = async () => {
+  const msg = $("m-msg"), exam = $("m-exam").value || $("m-name").value.trim(), max = parseFloat($("m-max").value);
+  if (!exam) return say(msg, "Enter an exam name.", "err");
+  if (isNaN(max) || max <= 0) return say(msg, "Enter the full mark for this exam.", "err");
+  if (!checkMarks()) return say(msg, "Fix the marks in red. A mark cannot be above the full mark.", "err");
+  const scores = {};
+  document.querySelectorAll(".score").forEach((i) => { scores[i.dataset.id] = i.value === "" ? null : parseFloat(i.value); });
+  $("m-save").disabled = true; say(msg, "Saving...");
+  try {
+    const r = await api("/api/teacher/marks", { subjectId: cur.subjectId, exam, maxScore: max, scores });
+    say(msg, `Saved ${r.saved} marks.`, "ok"); await loadExams(exam); say(msg, `Saved ${r.saved} marks.`, "ok");
+  } catch (e) { say(msg, e.message, "err"); }
+  $("m-save").disabled = false;
+};
+$("m-del").onclick = async () => {
+  const exam = $("m-exam").value;
+  if (!confirm(`Delete the exam "${exam}" and all its marks for ${cur.name}?`)) return;
+  try { await api("/api/teacher/marks/delete-exam", { subjectId: cur.subjectId, exam }); await loadExams(); } catch (e) { alert(e.message); }
+};
+
+// ---------- summary ----------
+async function loadSummary() {
+  const r = await api(`/api/teacher/summary?subjectId=${enc(cur.subjectId)}`);
+  $("s-title").textContent = `${cur.name} (${cur.class})`;
+  $("s-held").textContent = `Classes held: ${r.classesHeld}`;
+  $("s-list").innerHTML = r.students.map((s) => {
+    const pct = s.total ? Math.round((s.present / s.total) * 100) : null;
+    return `<div class="srow"><span class="roll">${esc(s.rollNo)}</span><span class="nm">${esc(s.name)}</span>
+      <span class="pct">${s.present}/${s.total} <b>${pct === null ? "-" : pct + "%"}</b><div class="bar ${pct !== null && pct < 80 ? "low" : ""}"><i style="width:${pct || 0}%"></i></div></span></div>`;
+  }).join("") || `<p class="muted">No students to show.</p>`;
+}
+$("s-xls").onclick = async () => {
+  const msg = $("s-msg"); say(msg, "Building the register...");
+  try {
+    if (typeof XLSX === "undefined") throw new Error("The Excel tool could not load. Check your internet and reload the page.");
+    const r = await api(`/api/teacher/register?subjectId=${enc(cur.subjectId)}`);
+    const cell = {}; r.marks.forEach(([sid, st, p]) => { cell[sid + "|" + st] = p; });
+    const head = ["Roll", "Name", ...r.sessions.map((s) => `${s.date.slice(8)}-${s.date.slice(5, 7)} P${s.period}`), "Held", "Attended", "%"];
+    const rows = r.students.map((st) => {
+      let held = 0, att = 0;
+      const cells = r.sessions.map((s) => { const v = cell[s.id + "|" + st.studentId]; if (v === undefined) return "-"; held++; if (v) att++; return v ? "P" : "A"; });
+      return [st.rollNo, st.name, ...cells, held, att, held ? Math.round((att / held) * 1000) / 10 : ""];
+    });
+    const ws = XLSX.utils.aoa_to_sheet([head, ...rows]);
+    ws["!cols"] = [{ wch: 6 }, { wch: 26 }, ...r.sessions.map(() => ({ wch: 8 })), { wch: 6 }, { wch: 9 }, { wch: 7 }];
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Register");
+    XLSX.writeFile(wb, `${cur.subjectId}_register_${today}.xlsx`);
+    say(msg, "Downloaded.", "ok");
+  } catch (e) { say(msg, e.message, "err"); }
+};
+
+// ---------- timetable ----------
+async function loadTT() {
+  const classes = [...new Set(subjects.map((s) => s.class))], mine = new Set(subjects.map((s) => s.subjectId));
+  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  let html = "";
+  for (const cls of classes) {
+    const r = await api(`/api/timetable?class=${enc(cls)}`);
+    const name = {}; r.subjects.forEach((s) => { name[s.subjectId] = s.name; });
+    const byDay = {}; r.timetable.forEach((d) => { byDay[d.day] = d; });
+    const body = days.filter((d) => byDay[d] && [1, 2, 3, 4].some((n) => byDay[d]["p" + n])).map((d) =>
+      `<div class="day"><b>${d}</b>${[1, 2, 3, 4].map((n) => { const id = byDay[d]["p" + n]; return `<div class="p ${mine.has(id) ? "mine" : ""}"><span>P${n}</span><span>${id ? esc(name[id] || id) : "&ndash;"}</span></div>`; }).join("")}</div>`).join("");
+    html += `<div class="card"><h3>${esc(cls)}</h3>${body || `<p class="muted">No timetable set yet.</p>`}<p class="muted" style="margin-bottom:0">Your subjects are in bold.</p></div>`;
+  }
+  $("tt-box").innerHTML = html;
+}
 </script></body></html>

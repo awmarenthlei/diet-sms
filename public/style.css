@@ -46,3 +46,42 @@ footer.credit{margin-top:auto;padding:14px 16px;text-align:center;font-size:12px
 /* Logos with a white background: blend into light pages, sit on a white badge in dark mode. */
 .logo{mix-blend-mode:multiply}
 @media (prefers-color-scheme:dark){.logo{mix-blend-mode:normal;background:#fff;border-radius:10px;padding:3px}}
+
+/* ---- phone-first lists (teacher portal, enrolment) ---- */
+input[type=checkbox]{width:auto}
+.seg{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;max-width:1000px;margin:12px auto 0;padding:0 16px}
+.seg button{background:transparent;color:var(--mute);border:1px solid var(--line);padding:9px 2px;font-size:13px}
+.seg button.on{background:var(--brand);color:var(--brand-ink);border-color:var(--brand)}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.slist{display:flex;flex-direction:column}
+.srow{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
+.srow:last-child{border-bottom:0}
+.roll{flex:0 0 28px;color:var(--mute);font-size:13px}
+.nm{flex:1;min-width:0;overflow-wrap:anywhere}
+.seg3{display:flex;gap:5px;flex:0 0 auto}
+.seg3 button{width:40px;height:40px;padding:0;background:transparent;color:var(--mute);border:1px solid var(--line)}
+.seg3 button.p.on{background:var(--ok);color:#fff;border-color:var(--ok)}
+.seg3 button.a.on{background:var(--danger);color:#fff;border-color:var(--danger)}
+.seg3 button.n.on{background:var(--mute);color:var(--card);border-color:var(--mute)}
+.score{width:80px;flex:0 0 80px;text-align:right}
+.score.bad{border-color:var(--danger);outline:1px solid var(--danger)}
+.savebar{position:sticky;bottom:0;z-index:4;background:var(--card);border-top:1px solid var(--line);padding:10px 16px;margin:0 -16px 16px;display:flex;gap:12px;align-items:center}
+.savebar button{flex:0 0 auto}
+.savebar .msg{margin:0;flex:1;min-width:0}
+.toolbar{display:flex;gap:10px;align-items:center;justify-content:space-between;margin:12px 0 4px}
+.notice{background:var(--warn-bg);color:var(--warn-ink);padding:8px 10px;border-radius:8px;font-size:13px;margin:10px 0 0}
+.hist button{display:flex;width:100%;justify-content:space-between;gap:8px;background:transparent;color:var(--ink);border:0;border-bottom:1px solid var(--line);border-radius:0;padding:10px 2px;font-weight:500;text-align:left}
+.badge{display:inline-block;font-size:11px;padding:1px 7px;border-radius:999px;background:var(--warn-bg);color:var(--warn-ink);vertical-align:middle}
+.pct{flex:0 0 auto;text-align:right;font-size:13px;min-width:78px}
+.pct b{font-size:15px}
+.bar{height:5px;background:var(--line);border-radius:3px;overflow:hidden;margin-top:4px}
+.bar>i{display:block;height:100%;background:var(--ok)}
+.bar.low>i{background:var(--danger)}
+.day{border-top:1px solid var(--line);padding:8px 0}
+.day b{display:block;margin-bottom:2px}
+.day .p{display:flex;gap:8px;font-size:14px}.day .p span:first-child{flex:0 0 26px;color:var(--mute)}
+.day .mine{font-weight:700}
+dialog .search{margin:0}
+.checks{max-height:48vh;overflow-y:auto;margin-top:8px;border:1px solid var(--line);border-radius:8px;padding:2px 10px}
+.chk{display:flex;align-items:center;gap:10px;margin:0;padding:8px 0;border-bottom:1px solid var(--line);color:var(--ink);font-size:15px}
+.chk:last-child{border-bottom:0}

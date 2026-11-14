@@ -3,10 +3,10 @@
 <title>DIET Serchhip: Login</title><link rel="stylesheet" href="/style.css"></head>
 <body><div class="narrow"><div class="card">
   <h2 style="font-size:20px">DIET Serchhip</h2>
-  <p class="muted" style="margin-top:0">Students, teachers and admin log in here.</p>
+  <p class="muted" style="margin-top:0">Student login. Teachers and admin use the staff page.</p>
   <form id="f">
     <label for="id">Login ID</label>
-    <input id="id" autocomplete="username" autocapitalize="off" spellcheck="false" required placeholder="Students: e.g. III_Sem_06. Teachers: your e-mail">
+    <input id="id" autocomplete="username" autocapitalize="off" spellcheck="false" required placeholder="e.g. III_Sem_06">
     <label for="pw">Password</label>
     <input id="pw" type="password" autocomplete="current-password" required>
     <p id="msg" class="msg"></p>
@@ -22,7 +22,7 @@ document.getElementById("f").addEventListener("submit", async (e) => {
   const msg = document.getElementById("msg"), go = document.getElementById("go");
   go.disabled = true; say(msg, "Logging in...");
   try {
-    const { user } = await api("/api/login", { loginId: document.getElementById("id").value, password: document.getElementById("pw").value });
+    const { user } = await api("/api/login", { portal: "student", loginId: document.getElementById("id").value, password: document.getElementById("pw").value });
     location.replace(user.mustChange ? "/change-password.html" : homeFor(user.role));
   } catch (err) { say(msg, err.message, "err"); go.disabled = false; }
 });

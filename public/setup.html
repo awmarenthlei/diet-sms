@@ -21,7 +21,7 @@ document.getElementById("f").addEventListener("submit", async (e) => {
   try {
     await api("/api/setup", { key: document.getElementById("key").value, loginId: document.getElementById("login").value, name: document.getElementById("name").value, password: document.getElementById("pw").value });
     say(msg, "Admin created. Taking you to the login page...", "ok");
-    setTimeout(() => location.replace("/"), 1200);
+    setTimeout(() => location.replace("/staff"), 1200);
   } catch (err) { say(msg, err.message, "err"); }
 });
 </script></body></html>
