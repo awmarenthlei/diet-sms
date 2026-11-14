@@ -40,9 +40,19 @@ CREATE TABLE IF NOT EXISTS subjects (
   subject_id TEXT PRIMARY KEY,                  -- e.g. MAT101
   name       TEXT NOT NULL,
   class      TEXT NOT NULL,
-  teacher_id INTEGER REFERENCES users(id) ON DELETE SET NULL
+  teacher_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  optional   INTEGER NOT NULL DEFAULT 0          -- 1 = optional paper: only enrolled students take it
 );
 CREATE INDEX IF NOT EXISTS idx_subjects_teacher ON subjects(teacher_id);
+
+-- Students enrolled in an optional subject (cleared when students are promoted).
+CREATE TABLE IF NOT EXISTS subject_students (
+  subject_id TEXT NOT NULL,
+  student_id TEXT NOT NULL,
+  joined_on  TEXT,
+  PRIMARY KEY (subject_id, student_id)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS idx_subject_students_student ON subject_students(student_id);
 
 CREATE TABLE IF NOT EXISTS timetable (
   class TEXT NOT NULL,
