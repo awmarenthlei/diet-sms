@@ -73,7 +73,14 @@
   <div class="card"><h3>Date-by-date register</h3>
     <div class="row"><div><label>Subject</label><select id="reg-sub"></select></div><button id="reg-xls" class="ghost">Download register</button></div>
     <p class="msg" id="reg-msg"></p></div>
+  <div class="card"><h3>Correct attendance</h3>
+    <p class="muted" style="margin-top:0">Uses the subject chosen above. Tap a <b>P</b> or <b>A</b> to change it. You will be asked to confirm.</p>
+    <label>Month</label><select id="fix-month"></select>
+    <p class="msg" id="fix-msg"></p>
+    <div class="mxwrap"><table class="mx"><thead id="fix-head"></thead><tbody id="fix-body"></tbody></table></div>
+  </div>
 </section>
+
 
 <!-- TIMETABLE -->
 <section id="t-timetable" class="hidden">
@@ -350,7 +357,10 @@ async function loadAttendance() {
     const o = pct(P, T);
     return `<tr><td>${esc(st.rollNo)}</td><td>${esc(st.name)}</td>${tds}<td><b style="${o !== null && o < 80 ? "color:var(--danger)" : ""}">${o === null ? "-" : o + "%"}</b></td></tr>`;
   }).join("") || `<tr><td colspan="3">No students in this class.</td></tr>`;
+  const prevSub = $("reg-sub").value;
   $("reg-sub").innerHTML = subs.map((x) => `<option value="${esc(x.subjectId)}">${esc(x.subjectId)} - ${esc(x.name)}</option>`).join("");
+  if (subs.some((x) => x.subjectId === prevSub)) $("reg-sub").value = prevSub;
+  await loadFix(fix && fix.id === $("reg-sub").value ? $("fix-month").value : null);
 }
 $("att-class").onchange = () => loadAttendance().catch((e) => say($("att-msg"), e.message, "err"));
 document.querySelector('#tabs [data-t="attendance"]').addEventListener("click", () => loadAttendance().catch((e) => say($("att-msg"), e.message, "err")));
@@ -366,6 +376,45 @@ $("att-xls").onclick = () => {
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([head, ...rows]), "Attendance");
   XLSX.writeFile(wb, `attendance_${$("att-class").value.replace(/ /g, "_")}_${new Date().toLocaleDateString("en-CA")}.xlsx`);
 };
+// ---- click-to-correct matrix ----
+let fix = null;
+const dmy = (d) => new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+async function loadFix(keepMonth) {
+  const id = $("reg-sub").value, msg = $("fix-msg"); if (!keepMonth) say(msg, "");
+  if (!id) { $("fix-head").innerHTML = ""; $("fix-body").innerHTML = ""; $("fix-month").innerHTML = ""; return; }
+  const r = await api("/api/teacher/register?subjectId=" + encodeURIComponent(id));
+  const cell = {}; r.marks.forEach(([sid, st, p]) => { cell[sid + "|" + st] = p; });
+  fix = { id, students: r.students, sessions: r.sessions, cell };
+  const months = [...new Set(r.sessions.map((x) => x.date.slice(0, 7)))].sort().reverse();
+  const keep = keepMonth && months.includes(keepMonth) ? keepMonth : months[0];
+  $("fix-month").innerHTML = months.map((m) => `<option value="${m}" ${m === keep ? "selected" : ""}>${new Date(m + "-01T00:00:00").toLocaleDateString("en-GB", { month: "long", year: "numeric" })}</option>`).join("");
+  drawFix();
+}
+function drawFix() {
+  if (!fix) return;
+  const m = $("fix-month").value, ses = fix.sessions.filter((x) => x.date.slice(0, 7) === m);
+  if (!ses.length) { $("fix-head").innerHTML = ""; $("fix-body").innerHTML = `<tr><td style="padding:12px">No classes saved for this subject yet.</td></tr>`; return; }
+  $("fix-head").innerHTML = `<tr><th class="nm">Student</th>${ses.map((x) => `<th>${dmy(x.date)}<br>P${x.period}</th>`).join("")}</tr>`;
+  $("fix-body").innerHTML = fix.students.map((st) => `<tr><td class="nm" title="${esc(st.name)}">${esc(st.rollNo)} ${esc(st.name)}</td>${ses.map((x) => {
+    const v = fix.cell[x.id + "|" + st.studentId];
+    return v === undefined ? `<td class="x">-</td>` : `<td><button class="c ${v ? "p" : "a"}" data-s="${x.id}" data-st="${esc(st.studentId)}">${v ? "P" : "A"}</button></td>`;
+  }).join("")}</tr>`).join("");
+}
+$("fix-month").onchange = drawFix;
+$("fix-body").addEventListener("click", async (e) => {
+  const b = e.target.closest("button.c"); if (!b) return;
+  const sid = Number(b.dataset.s), st = b.dataset.st, cur = fix.cell[sid + "|" + st];
+  const stu = fix.students.find((x) => x.studentId === st), ses = fix.sessions.find((x) => x.id === sid);
+  if (!confirm(`Change ${stu.name} (roll ${stu.rollNo}) on ${dmy(ses.date)}, period ${ses.period}, from ${cur ? "Present" : "Absent"} to ${cur ? "Absent" : "Present"}?`)) return;
+  b.disabled = true;
+  try {
+    await api("/api/admin/attendance/set", { sessionId: sid, studentId: st, present: cur ? 0 : 1 });
+    fix.cell[sid + "|" + st] = cur ? 0 : 1; drawFix(); say($("fix-msg"), `${stu.name}: now ${cur ? "Absent" : "Present"}.`, "ok");
+    loadAttendance();
+  } catch (err) { b.disabled = false; say($("fix-msg"), err.message, "err"); }
+});
+$("reg-sub").onchange = () => loadFix().catch((e) => say($("fix-msg"), e.message, "err"));
+
 $("reg-xls").onclick = async () => {
   const id = $("reg-sub").value, msg = $("reg-msg"); if (!id) return say(msg, "No subject.", "err");
   try {
