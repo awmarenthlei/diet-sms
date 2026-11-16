@@ -118,6 +118,6 @@ export async function enrolDialog(subjectId, onSaved) {
   }
   const foot = document.createElement("footer");
   foot.className = "credit";
-  foot.textContent = "Develop by R LALRINAWMA";
+  foot.textContent = "Developed by R LALRINAWMA";
   document.body.append(foot);
 })();
