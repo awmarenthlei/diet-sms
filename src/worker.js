@@ -650,6 +650,17 @@ handlers["GET /api/timetable"] = async (request, env) => {
   return json({ timetable: tt.results, subjects: subs.results });
 };
 
+// Admin: flip one student's P/A in a class that was already saved (fixing a teacher's mistake).
+handlers["POST /api/admin/attendance/set"] = async (request, env) => {
+  const body = await readBody(request);
+  if (!body) return fail(400, "Bad request");
+  const sessionId = Number(body.sessionId), studentId = String(body.studentId || "");
+  if (!Number.isInteger(sessionId) || !studentId || (body.present !== 0 && body.present !== 1 && body.present !== true && body.present !== false)) return fail(400, "Bad request");
+  const r = await env.DB.prepare("UPDATE att_marks SET present = ? WHERE session_id = ? AND student_id = ?").bind(body.present ? 1 : 0, sessionId, studentId).run();
+  if (!r.meta.changes) return fail(404, "That student has no mark in this class");
+  return json({ ok: true });
+};
+
 // Admin: attendance of a whole class, every subject side by side.
 handlers["GET /api/admin/attendance"] = async (request, env) => {
   const cls = qs(request, "class");
@@ -673,7 +684,7 @@ handlers["GET /api/admin/attendance"] = async (request, env) => {
 const ADMIN_ONLY = [
   "GET /api/admin/students", "POST /api/admin/students/import", "POST /api/admin/students/delete", "POST /api/admin/students/delete-many", "POST /api/admin/users/delete",
   "GET /api/admin/subjects", "POST /api/admin/subjects", "POST /api/admin/subjects/assign", "POST /api/admin/subjects/update", "POST /api/admin/subjects/delete",
-  "GET /api/admin/timetable", "POST /api/admin/timetable", "GET /api/admin/attendance",
+  "GET /api/admin/timetable", "POST /api/admin/timetable", "GET /api/admin/attendance", "POST /api/admin/attendance/set",
   "GET /api/admin/promote-preview", "POST /api/admin/promote", "POST /api/admin/clear-attendance",
   "POST /api/admin/past-results/import",
 ];
