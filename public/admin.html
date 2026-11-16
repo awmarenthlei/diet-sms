@@ -6,7 +6,7 @@
 <header class="top"><h1>DIET Serchhip: Admin</h1><div><span class="who" id="who"></span> <button class="ghost sm" id="pwbtn">My password</button> <button class="ghost sm" id="out">Log out</button></div></header>
 <nav class="tabs" id="tabs">
   <button data-t="students" class="on">Students</button><button data-t="teachers">Teachers</button><button data-t="subjects">Subjects</button>
-  <button data-t="timetable">Timetable</button><button data-t="semester">Semester</button><button data-t="past">Past records</button>
+  <button data-t="attendance">Attendance</button><button data-t="timetable">Timetable</button><button data-t="semester">Semester</button><button data-t="past">Past records</button>
 </nav>
 <main>
 
@@ -59,6 +59,20 @@
       <button>Add</button></div><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="sub-opt"> Optional paper (only chosen students take it)</label><p class="msg" id="sub-msg"></p></form>
   </div>
   <div class="card"><div class="tablewrap"><table><thead><tr><th>ID</th><th>Name</th><th>Class</th><th>Teacher</th><th></th></tr></thead><tbody id="sub-body"></tbody></table></div></div>
+</section>
+
+<!-- ATTENDANCE -->
+<section id="t-attendance" class="hidden">
+  <div class="card"><h3>Attendance by class</h3>
+    <div class="row"><div><label>Class</label><select id="att-class"><option>I Sem</option><option>II Sem</option><option>III Sem</option><option>IV Sem</option></select></div>
+    <button id="att-xls" class="ghost">Download Excel</button></div>
+    <p class="muted" id="att-info"></p><p class="msg" id="att-msg"></p>
+    <div class="tablewrap"><table><thead id="att-head"></thead><tbody id="att-body"></tbody></table></div>
+    <p class="muted">Each cell is classes attended / classes held for that student. Red = below 80%. A dash means the student has no class on record for that subject (for example an optional paper they do not take).</p>
+  </div>
+  <div class="card"><h3>Date-by-date register</h3>
+    <div class="row"><div><label>Subject</label><select id="reg-sub"></select></div><button id="reg-xls" class="ghost">Download register</button></div>
+    <p class="msg" id="reg-msg"></p></div>
 </section>
 
 <!-- TIMETABLE -->
@@ -317,6 +331,53 @@ $("past-import").onclick = async () => {
     log(`Finished: ${saved} saved, ${skipped} skipped (missing student, semester or subject).`);
   } catch (e) { log("Stopped: " + e.message); }
   $("past-import").disabled = false;
+};
+
+// ---------- attendance ----------
+let attData = null;
+const pct = (p, t) => (t ? Math.round((p / t) * 1000) / 10 : null);
+async function loadAttendance() {
+  const cls = $("att-class").value; say($("att-msg"), "");
+  attData = await api("/api/admin/attendance?class=" + encodeURIComponent(cls));
+  const { subjects: subs, students, cells } = attData;
+  const by = {}; cells.forEach(([st, sub, p, t]) => { by[st + "|" + sub] = [p, t]; });
+  attData.by = by;
+  $("att-info").textContent = `${students.length} students, ${subs.length} subjects. Classes held: ` + (subs.map((x) => `${x.subjectId} ${x.held}`).join(", ") || "none");
+  $("att-head").innerHTML = `<tr><th>Roll</th><th>Name</th>${subs.map((x) => `<th>${esc(x.subjectId)}</th>`).join("")}<th>Overall</th></tr>`;
+  $("att-body").innerHTML = students.map((st) => {
+    let P = 0, T = 0;
+    const tds = subs.map((x) => { const c = by[st.studentId + "|" + x.subjectId]; if (!c) return "<td>-</td>"; P += c[0]; T += c[1]; const v = pct(c[0], c[1]); return `<td style="${v < 80 ? "color:var(--danger)" : ""}">${c[0]}/${c[1]} (${Math.round(v)}%)</td>`; }).join("");
+    const o = pct(P, T);
+    return `<tr><td>${esc(st.rollNo)}</td><td>${esc(st.name)}</td>${tds}<td><b style="${o !== null && o < 80 ? "color:var(--danger)" : ""}">${o === null ? "-" : o + "%"}</b></td></tr>`;
+  }).join("") || `<tr><td colspan="3">No students in this class.</td></tr>`;
+  $("reg-sub").innerHTML = subs.map((x) => `<option value="${esc(x.subjectId)}">${esc(x.subjectId)} - ${esc(x.name)}</option>`).join("");
+}
+$("att-class").onchange = () => loadAttendance().catch((e) => say($("att-msg"), e.message, "err"));
+document.querySelector('#tabs [data-t="attendance"]').addEventListener("click", () => loadAttendance().catch((e) => say($("att-msg"), e.message, "err")));
+$("att-xls").onclick = () => {
+  if (!attData) return;
+  const { subjects: subs, students, by } = attData;
+  const head = ["Roll", "Name", ...subs.flatMap((x) => [x.subjectId + " attended", x.subjectId + " held", x.subjectId + " %"]), "Total attended", "Total held", "Overall %"];
+  const rows = students.map((st) => {
+    let P = 0, T = 0;
+    const cs = subs.flatMap((x) => { const c = by[st.studentId + "|" + x.subjectId]; if (!c) return ["", "", ""]; P += c[0]; T += c[1]; return [c[0], c[1], pct(c[0], c[1])]; });
+    return [st.rollNo, st.name, ...cs, P, T, pct(P, T) ?? ""];
+  });
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([head, ...rows]), "Attendance");
+  XLSX.writeFile(wb, `attendance_${$("att-class").value.replace(/ /g, "_")}_${new Date().toLocaleDateString("en-CA")}.xlsx`);
+};
+$("reg-xls").onclick = async () => {
+  const id = $("reg-sub").value, msg = $("reg-msg"); if (!id) return say(msg, "No subject.", "err");
+  try {
+    const r = await api("/api/teacher/register?subjectId=" + encodeURIComponent(id));
+    const cell = {}; r.marks.forEach(([sid, st, p]) => { cell[sid + "|" + st] = p; });
+    const head = ["Roll", "Name", ...r.sessions.map((s) => `${s.date.slice(8)}-${s.date.slice(5, 7)} P${s.period}`), "Held", "Attended", "%"];
+    const rows = r.students.map((st) => { let h = 0, a = 0;
+      const cs = r.sessions.map((s) => { const v = cell[s.id + "|" + st.studentId]; if (v === undefined) return "-"; h++; if (v) a++; return v ? "P" : "A"; });
+      return [st.rollNo, st.name, ...cs, h, a, h ? Math.round((a / h) * 1000) / 10 : ""]; });
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([head, ...rows]), "Register");
+    XLSX.writeFile(wb, `${id}_register.xlsx`); say(msg, "Downloaded.", "ok");
+  } catch (e) { say(msg, e.message, "err"); }
 };
 
 // ---------- start ----------
