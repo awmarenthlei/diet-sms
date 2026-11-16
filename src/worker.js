@@ -650,11 +650,30 @@ handlers["GET /api/timetable"] = async (request, env) => {
   return json({ timetable: tt.results, subjects: subs.results });
 };
 
+// Admin: attendance of a whole class, every subject side by side.
+handlers["GET /api/admin/attendance"] = async (request, env) => {
+  const cls = qs(request, "class");
+  if (!CLASSES.includes(cls)) return fail(400, "Pick a class");
+  const [subs, studs, agg, held] = await Promise.all([
+    env.DB.prepare("SELECT s.subject_id AS subjectId, s.name, s.optional, u.name AS teacherName FROM subjects s LEFT JOIN users u ON u.id = s.teacher_id WHERE s.class = ? ORDER BY s.subject_id").bind(cls).all(),
+    env.DB.prepare("SELECT student_id AS studentId, name, roll_no AS rollNo FROM students WHERE class = ? ORDER BY CAST(roll_no AS INTEGER), roll_no").bind(cls).all(),
+    env.DB.prepare(`SELECT a.subject_id AS sub, m.student_id AS st, SUM(m.present) AS p, COUNT(*) AS t
+                      FROM att_marks m JOIN att_sessions a ON a.id = m.session_id WHERE a.class = ? GROUP BY a.subject_id, m.student_id`).bind(cls).all(),
+    env.DB.prepare("SELECT subject_id AS sub, COUNT(*) AS n FROM att_sessions WHERE class = ? GROUP BY subject_id").bind(cls).all(),
+  ]);
+  const heldBy = {}; held.results.forEach((r) => { heldBy[r.sub] = r.n; });
+  return json({
+    subjects: subs.results.map((x) => ({ ...x, held: heldBy[x.subjectId] || 0 })),
+    students: studs.results,
+    cells: agg.results.map((r) => [r.st, r.sub, r.p, r.t]),
+  });
+};
+
 // Who may call what. Anything not listed here needs no login (login, logout, setup).
 const ADMIN_ONLY = [
   "GET /api/admin/students", "POST /api/admin/students/import", "POST /api/admin/students/delete", "POST /api/admin/students/delete-many", "POST /api/admin/users/delete",
   "GET /api/admin/subjects", "POST /api/admin/subjects", "POST /api/admin/subjects/assign", "POST /api/admin/subjects/update", "POST /api/admin/subjects/delete",
-  "GET /api/admin/timetable", "POST /api/admin/timetable",
+  "GET /api/admin/timetable", "POST /api/admin/timetable", "GET /api/admin/attendance",
   "GET /api/admin/promote-preview", "POST /api/admin/promote", "POST /api/admin/clear-attendance",
   "POST /api/admin/past-results/import",
 ];
@@ -666,6 +685,7 @@ const ACCESS = {
     "GET /api/teacher/attendance-history", "GET /api/teacher/summary", "GET /api/teacher/register",
     "GET /api/teacher/marks", "POST /api/teacher/marks", "POST /api/teacher/marks/delete-exam",
   ].map((k) => [k, ["teacher", "coordinator"]])),
+  "GET /api/teacher/register": ["admin", "teacher", "coordinator"],
   "GET /api/enrolment": ["admin", "teacher", "coordinator"],
   "POST /api/enrolment": ["admin", "teacher", "coordinator"],
   "GET /api/timetable": ROLES,
