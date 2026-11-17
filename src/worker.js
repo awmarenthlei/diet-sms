@@ -651,11 +651,10 @@ handlers["GET /api/timetable"] = async (request, env) => {
 };
 
 // ----- student portal: a student sees only their own record -----
-handlers["GET /api/student/me"] = async (request, env, user) => {
-  const sid = user.student_id;
+async function studentRecord(env, sid, withMarks) {
   const st = sid && (await env.DB.prepare("SELECT student_id AS studentId, name, roll_no AS rollNo, class, semester, batch FROM students WHERE student_id = ?").bind(sid).first());
-  if (!st) return fail(404, "Your student record was not found. Please ask the admin.");
-  const [subs, agg, held] = await Promise.all([
+  if (!st) return null;
+  const [subs, agg, held, marks] = await Promise.all([
     // subjects of the class (optional ones only if enrolled), plus any other subject the student has attendance in
     env.DB.prepare(`SELECT subject_id AS subjectId, name, optional FROM subjects
                      WHERE (class = ? AND optional = 0) OR subject_id IN (SELECT subject_id FROM subject_students WHERE student_id = ?)
@@ -664,17 +663,24 @@ handlers["GET /api/student/me"] = async (request, env, user) => {
     env.DB.prepare(`SELECT a.subject_id AS sub, SUM(m.present) AS p, COUNT(*) AS t FROM att_marks m JOIN att_sessions a ON a.id = m.session_id
                      WHERE m.student_id = ? GROUP BY a.subject_id`).bind(sid).all(),
     env.DB.prepare("SELECT subject_id AS sub, COUNT(*) AS n FROM att_sessions WHERE class = ? GROUP BY subject_id").bind(st.class).all(),
+    withMarks ? env.DB.prepare("SELECT subject_id AS sub, exam_name AS exam, score, max_score AS max FROM marks WHERE student_id = ? ORDER BY subject_id, date_graded, exam_name").bind(sid).all() : Promise.resolve(null),
   ]);
   const a = {}; agg.results.forEach((r) => { a[r.sub] = r; });
   const h = {}; held.results.forEach((r) => { h[r.sub] = r.n; });
+  const names = {}; subs.results.forEach((x) => { names[x.subjectId] = x.name; });
   let P = 0, T = 0;
   const attendance = subs.results.map((x) => {
     const r = a[x.subjectId] || { p: 0, t: 0 }; P += r.p; T += r.t;
     return { subjectId: x.subjectId, name: x.name, optional: !!x.optional, present: r.p, total: r.t, held: h[x.subjectId] || 0 };
   });
-  return json({
-    student: st, attendance, overall: { present: P, total: T },
-  });
+  const out = { student: st, attendance, overall: { present: P, total: T } };
+  if (marks) out.marks = marks.results.map((m) => ({ subjectId: m.sub, subject: names[m.sub] || m.sub, exam: m.exam, score: m.score, max: m.max }));
+  return out;
+}
+// A student sees only their own attendance (never marks).
+handlers["GET /api/student/me"] = async (request, env, user) => {
+  const rec = await studentRecord(env, user.student_id, false);
+  return rec ? json(rec) : fail(404, "Your student record was not found. Please ask the admin.");
 };
 
 handlers["GET /api/student/past"] = async (request, env, user) => {
@@ -684,6 +690,81 @@ handlers["GET /api/student/past"] = async (request, env, user) => {
             external_obtained AS eo, external_full AS efull, status FROM past_results WHERE student_id = ? ORDER BY past_semester, subject_id`
   ).bind(user.student_id).all();
   return json({ results: rows.results });
+};
+
+// ----- admin reports -----
+const addDays = (d, n) => new Date(Date.parse(d + "T00:00:00Z") + n * 86400000).toISOString().slice(0, 10);
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const marksOfClass = (env, cls) => env.DB.prepare(
+  `SELECT mk.student_id AS st, mk.subject_id AS sub, mk.exam_name AS exam, mk.score, mk.max_score AS max
+     FROM marks mk JOIN subjects s ON s.subject_id = mk.subject_id WHERE s.class = ? ORDER BY mk.subject_id, mk.date_graded, mk.exam_name`).bind(cls).all();
+
+handlers["GET /api/admin/marks"] = async (request, env) => {
+  const cls = qs(request, "class");
+  if (!CLASSES.includes(cls)) return fail(400, "Pick a class");
+  const [subs, studs, marks] = await Promise.all([
+    env.DB.prepare("SELECT subject_id AS subjectId, name FROM subjects WHERE class = ? ORDER BY subject_id").bind(cls).all(),
+    env.DB.prepare("SELECT student_id AS studentId, name, roll_no AS rollNo FROM students WHERE class = ? ORDER BY CAST(roll_no AS INTEGER), roll_no").bind(cls).all(),
+    marksOfClass(env, cls),
+  ]);
+  return json({ subjects: subs.results, students: studs.results, marks: marks.results.map((m) => [m.st, m.sub, m.exam, m.score, m.max]) });
+};
+
+// Everything for one class in one go, to keep as a record before clearing or promoting.
+handlers["GET /api/admin/archive"] = async (request, env) => {
+  const cls = qs(request, "class");
+  if (!CLASSES.includes(cls)) return fail(400, "Pick a class");
+  const [subs, studs, sess, am, marks] = await Promise.all([
+    env.DB.prepare("SELECT s.subject_id AS subjectId, s.name, s.optional, u.name AS teacherName FROM subjects s LEFT JOIN users u ON u.id = s.teacher_id WHERE s.class = ? ORDER BY s.subject_id").bind(cls).all(),
+    env.DB.prepare("SELECT student_id AS studentId, name, roll_no AS rollNo FROM students WHERE class = ? ORDER BY CAST(roll_no AS INTEGER), roll_no").bind(cls).all(),
+    env.DB.prepare("SELECT id, date, subject_id AS sub, period FROM att_sessions WHERE class = ? ORDER BY date, period").bind(cls).all(),
+    env.DB.prepare("SELECT m.session_id AS sid, m.student_id AS st, m.present AS p FROM att_marks m JOIN att_sessions a ON a.id = m.session_id WHERE a.class = ?").bind(cls).all(),
+    marksOfClass(env, cls),
+  ]);
+  return json({
+    subjects: subs.results, students: studs.results, sessions: sess.results,
+    att: am.results.map((r) => [r.sid, r.st, r.p]), marks: marks.results.map((m) => [m.st, m.sub, m.exam, m.score, m.max]),
+  });
+};
+
+// One student's full sheet (attendance, marks, earlier semesters) for the admin to print.
+handlers["GET /api/admin/student-report"] = async (request, env) => {
+  const sid = qs(request, "studentId");
+  const rec = await studentRecord(env, sid, true);
+  if (!rec) return fail(404, "Student not found");
+  const past = await env.DB.prepare(
+    `SELECT past_semester AS semester, subject_id AS subjectId, subject_name AS name, internal_obtained AS io, internal_full AS ifull,
+            external_obtained AS eo, external_full AS efull, status FROM past_results WHERE student_id = ? ORDER BY past_semester, subject_id`).bind(sid).all();
+  return json({ ...rec, past: past.results });
+};
+
+// Which timetabled classes had no attendance saved, grouped by teacher.
+handlers["GET /api/admin/monitor"] = async (request, env) => {
+  const yesterday = addDays(todayIST(), -1);
+  let to = qs(request, "to"); if (!isDate(to) || to > yesterday) to = yesterday;
+  let from = qs(request, "from"); if (!isDate(from) || from > to) from = addDays(to, -13);
+  if (from < addDays(to, -61)) from = addDays(to, -61);
+  const [tt, subs, sess] = await Promise.all([
+    env.DB.prepare("SELECT class, day, p1, p2, p3, p4 FROM timetable").all(),
+    env.DB.prepare("SELECT s.subject_id AS id, s.name, s.class, u.name AS teacher FROM subjects s LEFT JOIN users u ON u.id = s.teacher_id").all(),
+    env.DB.prepare("SELECT date, subject_id AS sub, period FROM att_sessions WHERE date BETWEEN ? AND ?").bind(from, to).all(),
+  ]);
+  const sub = {}; subs.results.forEach((x) => { sub[x.id] = x; });
+  const saved = new Set(sess.results.map((r) => `${r.date}|${r.sub}|${r.period}`));
+  const byDay = {}; tt.results.forEach((r) => { (byDay[r.day] ||= []).push(r); });
+  const T = {};
+  for (let d = from; d <= to; d = addDays(d, 1)) {
+    for (const row of byDay[DAY_NAMES[new Date(d + "T00:00:00Z").getUTCDay()]] || []) {
+      for (let p = 1; p <= 4; p++) {
+        const id = row["p" + p]; if (!id || !sub[id]) continue;
+        const name = sub[id].teacher || "(no teacher assigned)";
+        const t = (T[name] ||= { teacher: name, expected: 0, marked: 0, missing: [] });
+        t.expected++;
+        if (saved.has(`${d}|${id}|${p}`)) t.marked++; else t.missing.push({ date: d, period: p, subjectId: id, subject: sub[id].name, class: sub[id].class });
+      }
+    }
+  }
+  return json({ from, to, teachers: Object.values(T).sort((x, y) => y.missing.length - x.missing.length) });
 };
 
 // Admin: flip one student's P/A in a class that was already saved (fixing a teacher's mistake).
@@ -701,12 +782,13 @@ handlers["POST /api/admin/attendance/set"] = async (request, env) => {
 handlers["GET /api/admin/attendance"] = async (request, env) => {
   const cls = qs(request, "class");
   if (!CLASSES.includes(cls)) return fail(400, "Pick a class");
+  const lo = isDate(qs(request, "from")) ? qs(request, "from") : "0000-00-00", hi = isDate(qs(request, "to")) ? qs(request, "to") : "9999-12-31";
   const [subs, studs, agg, held] = await Promise.all([
     env.DB.prepare("SELECT s.subject_id AS subjectId, s.name, s.optional, u.name AS teacherName FROM subjects s LEFT JOIN users u ON u.id = s.teacher_id WHERE s.class = ? ORDER BY s.subject_id").bind(cls).all(),
     env.DB.prepare("SELECT student_id AS studentId, name, roll_no AS rollNo FROM students WHERE class = ? ORDER BY CAST(roll_no AS INTEGER), roll_no").bind(cls).all(),
     env.DB.prepare(`SELECT a.subject_id AS sub, m.student_id AS st, SUM(m.present) AS p, COUNT(*) AS t
-                      FROM att_marks m JOIN att_sessions a ON a.id = m.session_id WHERE a.class = ? GROUP BY a.subject_id, m.student_id`).bind(cls).all(),
-    env.DB.prepare("SELECT subject_id AS sub, COUNT(*) AS n FROM att_sessions WHERE class = ? GROUP BY subject_id").bind(cls).all(),
+                      FROM att_marks m JOIN att_sessions a ON a.id = m.session_id WHERE a.class = ? AND a.date BETWEEN ? AND ? GROUP BY a.subject_id, m.student_id`).bind(cls, lo, hi).all(),
+    env.DB.prepare("SELECT subject_id AS sub, COUNT(*) AS n FROM att_sessions WHERE class = ? AND date BETWEEN ? AND ? GROUP BY subject_id").bind(cls, lo, hi).all(),
   ]);
   const heldBy = {}; held.results.forEach((r) => { heldBy[r.sub] = r.n; });
   return json({
@@ -720,7 +802,7 @@ handlers["GET /api/admin/attendance"] = async (request, env) => {
 const ADMIN_ONLY = [
   "GET /api/admin/students", "POST /api/admin/students/import", "POST /api/admin/students/delete", "POST /api/admin/students/delete-many", "POST /api/admin/users/delete",
   "GET /api/admin/subjects", "POST /api/admin/subjects", "POST /api/admin/subjects/assign", "POST /api/admin/subjects/update", "POST /api/admin/subjects/delete",
-  "GET /api/admin/timetable", "POST /api/admin/timetable", "GET /api/admin/attendance", "POST /api/admin/attendance/set",
+  "GET /api/admin/timetable", "POST /api/admin/timetable", "GET /api/admin/attendance", "POST /api/admin/attendance/set", "GET /api/admin/marks", "GET /api/admin/archive", "GET /api/admin/student-report", "GET /api/admin/monitor",
   "GET /api/admin/promote-preview", "POST /api/admin/promote", "POST /api/admin/clear-attendance",
   "POST /api/admin/past-results/import",
 ];
