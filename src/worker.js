@@ -655,7 +655,7 @@ handlers["GET /api/student/me"] = async (request, env, user) => {
   const sid = user.student_id;
   const st = sid && (await env.DB.prepare("SELECT student_id AS studentId, name, roll_no AS rollNo, class, semester, batch FROM students WHERE student_id = ?").bind(sid).first());
   if (!st) return fail(404, "Your student record was not found. Please ask the admin.");
-  const [subs, agg, held, marks] = await Promise.all([
+  const [subs, agg, held] = await Promise.all([
     // subjects of the class (optional ones only if enrolled), plus any other subject the student has attendance in
     env.DB.prepare(`SELECT subject_id AS subjectId, name, optional FROM subjects
                      WHERE (class = ? AND optional = 0) OR subject_id IN (SELECT subject_id FROM subject_students WHERE student_id = ?)
@@ -664,11 +664,9 @@ handlers["GET /api/student/me"] = async (request, env, user) => {
     env.DB.prepare(`SELECT a.subject_id AS sub, SUM(m.present) AS p, COUNT(*) AS t FROM att_marks m JOIN att_sessions a ON a.id = m.session_id
                      WHERE m.student_id = ? GROUP BY a.subject_id`).bind(sid).all(),
     env.DB.prepare("SELECT subject_id AS sub, COUNT(*) AS n FROM att_sessions WHERE class = ? GROUP BY subject_id").bind(st.class).all(),
-    env.DB.prepare("SELECT subject_id AS sub, exam_name AS exam, score, max_score AS max FROM marks WHERE student_id = ? ORDER BY subject_id, date_graded, exam_name").bind(sid).all(),
   ]);
   const a = {}; agg.results.forEach((r) => { a[r.sub] = r; });
   const h = {}; held.results.forEach((r) => { h[r.sub] = r.n; });
-  const names = {}; subs.results.forEach((x) => { names[x.subjectId] = x.name; });
   let P = 0, T = 0;
   const attendance = subs.results.map((x) => {
     const r = a[x.subjectId] || { p: 0, t: 0 }; P += r.p; T += r.t;
@@ -676,7 +674,6 @@ handlers["GET /api/student/me"] = async (request, env, user) => {
   });
   return json({
     student: st, attendance, overall: { present: P, total: T },
-    marks: marks.results.map((m) => ({ subjectId: m.sub, subject: names[m.sub] || m.sub, exam: m.exam, score: m.score, max: m.max })),
   });
 };
 
