@@ -6,8 +6,8 @@
 <main>
   <div class="card"><h3 style="margin:0" id="s-name"></h3><p class="muted" style="margin:4px 0 0" id="s-info"></p></div>
 </main>
-<nav class="seg" id="tabs">
-  <button data-t="att" class="on">Attendance</button><button data-t="marks">Marks</button><button data-t="tt">Timetable</button><button data-t="past">Past</button>
+<nav class="seg" id="tabs" style="grid-template-columns:repeat(3,1fr)">
+  <button data-t="att" class="on">Attendance</button><button data-t="tt">Timetable</button><button data-t="past">Past</button>
 </nav>
 <main>
 <section id="t-att">
@@ -15,7 +15,6 @@
   <div class="card"><h3 style="margin-top:0">By subject</h3><div class="slist" id="a-list"></div>
     <p class="muted" style="margin-bottom:0">80% attendance is needed. Red means below 80%.</p></div>
 </section>
-<section id="t-marks" class="hidden"><div id="m-box"></div></section>
 <section id="t-tt" class="hidden"><div id="tt-box"></div></section>
 <section id="t-past" class="hidden"><div id="p-box"></div></section>
 </main>
@@ -46,12 +45,6 @@ function drawAtt() {
       <span class="pct">${x.present}/${x.total} <b style="${p !== null && p < 80 ? "color:var(--danger)" : ""}">${p === null ? "-" : p + "%"}</b><div class="bar ${p !== null && p < 80 ? "low" : ""}"><i style="width:${p || 0}%"></i></div></span></div>`;
   }).join("") || `<p class="muted">No subjects yet.</p>`;
 }
-function drawMarks() {
-  const by = {}; data.marks.forEach((m) => { (by[m.subjectId] ||= { name: m.subject, rows: [] }).rows.push(m); });
-  $("m-box").innerHTML = Object.values(by).map((g) => `<div class="card"><h3 style="margin-top:0">${esc(g.name)}</h3>${g.rows.map((m) =>
-    `<div class="srow"><span class="nm">${esc(m.exam)}</span><span class="pct"><b>${m.score}</b> / ${m.max}</span></div>`).join("")}</div>`).join("")
-    || `<div class="card"><p class="muted" style="margin:0">No marks have been entered yet.</p></div>`;
-}
 async function drawTT() {
   const r = await api("/api/timetable?class=" + encodeURIComponent(st.class));
   const name = {}; r.subjects.forEach((s) => { name[s.subjectId] = s.name; });
@@ -68,11 +61,11 @@ async function drawPast() {
     `<div class="srow"><span class="nm">${esc(x.name || x.subjectId)}<br><span class="muted">Internal ${fmt(x.io)}/${fmt(x.ifull)} · External ${fmt(x.eo)}/${fmt(x.efull)}</span></span><span class="pct">${esc(x.status || "")}</span></div>`).join("")}</div>`).join("")
     || `<div class="card"><p class="muted" style="margin:0">No earlier results on record.</p></div>`;
 }
-const draw = { att: drawAtt, marks: drawMarks, tt: drawTT, past: drawPast };
+const draw = { att: drawAtt, tt: drawTT, past: drawPast };
 $("tabs").onclick = (e) => {
   const t = e.target.dataset.t; if (!t) return;
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.t === t));
-  ["att", "marks", "tt", "past"].forEach((x) => $("t-" + x).classList.toggle("hidden", x !== t));
+  ["att", "tt", "past"].forEach((x) => $("t-" + x).classList.toggle("hidden", x !== t));
   if (!loaded[t]) { loaded[t] = true; Promise.resolve(draw[t]()).catch((err) => alert(err.message)); }
 };
 loaded.att = true; drawAtt();
