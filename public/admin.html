@@ -6,7 +6,7 @@
 <header class="top"><h1>DIET Serchhip: Admin</h1><div><span class="who" id="who"></span> <button class="ghost sm" id="pwbtn">My password</button> <button class="ghost sm" id="out">Log out</button></div></header>
 <nav class="tabs" id="tabs">
   <button data-t="students" class="on">Students</button><button data-t="teachers">Teachers</button><button data-t="subjects">Subjects</button>
-  <button data-t="attendance">Attendance</button><button data-t="timetable">Timetable</button><button data-t="semester">Semester</button><button data-t="past">Past records</button>
+  <button data-t="attendance">Attendance</button><button data-t="reports">Reports</button><button data-t="timetable">Timetable</button><button data-t="semester">Semester</button><button data-t="past">Past records</button>
 </nav>
 <main>
 
@@ -66,6 +66,10 @@
   <div class="card"><h3>Attendance by class</h3>
     <div class="row"><div><label>Class</label><select id="att-class"><option>I Sem</option><option>II Sem</option><option>III Sem</option><option>IV Sem</option></select></div>
     <button id="att-xls" class="ghost">Download Excel</button></div>
+    <div class="row"><div><label>From (optional)</label><input type="date" id="att-from"></div><div><label>To (optional)</label><input type="date" id="att-to"></div>
+    <button id="att-clr" class="ghost">All dates</button></div>
+    <div class="row" style="align-items:center"><label style="display:flex;gap:8px;align-items:center;margin:0"><input type="checkbox" id="att-low"> Show only students below 80%</label>
+    <button id="att-print" class="ghost">Print this list</button></div>
     <p class="muted" id="att-info"></p><p class="msg" id="att-msg"></p>
     <div class="tablewrap"><table><thead id="att-head"></thead><tbody id="att-body"></tbody></table></div>
     <p class="muted">Each cell is classes attended / classes held for that student. Red = below 80%. A dash means the student has no class on record for that subject (for example an optional paper they do not take).</p>
@@ -81,6 +85,28 @@
   </div>
 </section>
 
+
+<!-- REPORTS -->
+<section id="t-reports" class="hidden">
+  <div class="card"><h3>Marks by class</h3>
+    <div class="row"><div><label>Class</label><select id="mk-class"><option>I Sem</option><option>II Sem</option><option>III Sem</option><option>IV Sem</option></select></div>
+    <button id="mk-xls" class="ghost">Download Excel</button></div>
+    <p class="msg" id="mk-msg"></p>
+    <div class="tablewrap"><table><thead id="mk-head"></thead><tbody id="mk-body"></tbody></table></div>
+  </div>
+  <div class="card"><h3>Student progress sheet</h3>
+    <div class="row"><div><label>Class</label><select id="sp-class"><option>I Sem</option><option>II Sem</option><option>III Sem</option><option>IV Sem</option></select></div>
+    <div><label>Student</label><select id="sp-stu"></select></div><button id="sp-show">Show sheet</button></div>
+    <p class="msg" id="sp-msg"></p>
+    <div id="sp-sheet"></div>
+    <button id="sp-print" class="ghost hidden" style="margin-top:10px">Print this sheet</button>
+  </div>
+  <div class="card"><h3>Teacher monitoring</h3>
+    <p class="muted" style="margin-top:0">Lists timetabled classes with no attendance saved, grouped by teacher. Today is not counted. Holidays will show as missing.</p>
+    <div class="row"><div><label>From (optional)</label><input type="date" id="mon-from"></div><div><label>To (optional)</label><input type="date" id="mon-to"></div><button id="mon-go">Check</button></div>
+    <p class="msg" id="mon-msg"></p><div id="mon-out"></div>
+  </div>
+</section>
 
 <!-- TIMETABLE -->
 <section id="t-timetable" class="hidden">
@@ -100,6 +126,12 @@
     <div class="warn">Before pressing it: export your reports, import this semester's results under Past records, and clear the old attendance below. Press it <b>once</b> per semester.</div>
     <p id="pro-info" class="muted"></p>
     <button id="pro-btn">Promote all students</button><p class="msg" id="pro-msg"></p>
+  </div>
+  <div class="card">
+    <h2>Archive before you clear or promote</h2>
+    <p class="muted" style="margin-top:0">Downloads one Excel file with, for each class: the attendance summary, every subject's date-by-date register, and all marks. Keep it safe. Do this before Clear attendance or Promote.</p>
+    <div class="row"><div><label>Class</label><select id="arc-class"><option value="">All classes</option><option>I Sem</option><option>II Sem</option><option>III Sem</option><option>IV Sem</option></select></div><button id="arc-btn">Download archive</button></div>
+    <p class="msg" id="arc-msg"></p>
   </div>
   <div class="card">
     <h2>Clear old attendance</h2>
@@ -345,16 +377,20 @@ let attData = null;
 const pct = (p, t) => (t ? Math.round((p / t) * 1000) / 10 : null);
 async function loadAttendance() {
   const cls = $("att-class").value; say($("att-msg"), "");
-  attData = await api("/api/admin/attendance?class=" + encodeURIComponent(cls));
+  const f = $("att-from").value, t = $("att-to").value;
+  attData = await api("/api/admin/attendance?class=" + encodeURIComponent(cls) + (f ? "&from=" + f : "") + (t ? "&to=" + t : ""));
   const { subjects: subs, students, cells } = attData;
   const by = {}; cells.forEach(([st, sub, p, t]) => { by[st + "|" + sub] = [p, t]; });
   attData.by = by;
   $("att-info").textContent = `${students.length} students, ${subs.length} subjects. Classes held: ` + (subs.map((x) => `${x.subjectId} ${x.held}`).join(", ") || "none");
   $("att-head").innerHTML = `<tr><th>Roll</th><th>Name</th>${subs.map((x) => `<th>${esc(x.subjectId)}</th>`).join("")}<th>Overall</th></tr>`;
+  const low = $("att-low").checked; attData.rows = [];
   $("att-body").innerHTML = students.map((st) => {
     let P = 0, T = 0;
     const tds = subs.map((x) => { const c = by[st.studentId + "|" + x.subjectId]; if (!c) return "<td>-</td>"; P += c[0]; T += c[1]; const v = pct(c[0], c[1]); return `<td style="${v < 80 ? "color:var(--danger)" : ""}">${c[0]}/${c[1]} (${Math.round(v)}%)</td>`; }).join("");
     const o = pct(P, T);
+    if (o !== null && o < 80) attData.rows.push({ st, P, T, o });
+    if (low && !(o !== null && o < 80)) return "";
     return `<tr><td>${esc(st.rollNo)}</td><td>${esc(st.name)}</td>${tds}<td><b style="${o !== null && o < 80 ? "color:var(--danger)" : ""}">${o === null ? "-" : o + "%"}</b></td></tr>`;
   }).join("") || `<tr><td colspan="3">No students in this class.</td></tr>`;
   const prevSub = $("reg-sub").value;
@@ -362,6 +398,17 @@ async function loadAttendance() {
   if (subs.some((x) => x.subjectId === prevSub)) $("reg-sub").value = prevSub;
   await loadFix(fix && fix.id === $("reg-sub").value ? $("fix-month").value : null);
 }
+const reloadAtt = () => loadAttendance().catch((e) => say($("att-msg"), e.message, "err"));
+$("att-from").onchange = $("att-to").onchange = $("att-low").onchange = reloadAtt;
+$("att-clr").onclick = () => { $("att-from").value = ""; $("att-to").value = ""; reloadAtt(); };
+const rangeText = () => ($("att-from").value || $("att-to").value ? `${$("att-from").value || "start"} to ${$("att-to").value || "today"}` : "all dates");
+$("att-print").onclick = () => {
+  if (!attData) return;
+  const rows = attData.rows;
+  printHtml("Below 80% attendance", `<h1>DIET Serchhip</h1><h2>Students below 80% attendance: ${esc($("att-class").value)} (${esc(rangeText())})</h2>
+    ${rows.length ? `<table><tr><th>Roll</th><th>Name</th><th>Attended</th><th>Held</th><th>%</th></tr>${rows.map((r) => `<tr><td>${esc(r.st.rollNo)}</td><td>${esc(r.st.name)}</td><td>${r.P}</td><td>${r.T}</td><td class="low">${r.o}%</td></tr>`).join("")}</table>` : "<p>No student is below 80%.</p>"}
+    <p><small>Printed ${new Date().toLocaleDateString("en-GB")}</small></p>`);
+};
 $("att-class").onchange = () => loadAttendance().catch((e) => say($("att-msg"), e.message, "err"));
 document.querySelector('#tabs [data-t="attendance"]').addEventListener("click", () => loadAttendance().catch((e) => say($("att-msg"), e.message, "err")));
 $("att-xls").onclick = () => {
@@ -428,6 +475,121 @@ $("reg-xls").onclick = async () => {
     XLSX.writeFile(wb, `${id}_register.xlsx`); say(msg, "Downloaded.", "ok");
   } catch (e) { say(msg, e.message, "err"); }
 };
+
+// ---------- reports ----------
+function printHtml(title, body) {
+  const w = window.open("", "_blank");
+  if (!w) return alert("Please allow pop-ups for this site, then try again.");
+  w.document.write(`<!doctype html><meta charset="utf-8"><title>${esc(title)}</title><style>body{font:14px Arial,sans-serif;margin:24px;color:#000}h1{font-size:19px;margin:0 0 4px}h2{font-size:15px;margin:14px 0 6px}table{border-collapse:collapse;width:100%;margin-bottom:8px}th,td{border:1px solid #888;padding:4px 6px;text-align:left}.low{color:#b00020;font-weight:700}small{color:#444}</style>${body}`);
+  w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
+}
+const safeSheet = (n, used) => { let b = n.replace(/[\\/?*\[\]:]/g, " ").slice(0, 28), x = b, i = 2; while (used.has(x)) x = b + "~" + i++; used.add(x); return x; };
+const today10 = () => new Date().toLocaleDateString("en-CA");
+
+// marks grid helpers (shared by the Marks view and the archive)
+function marksAoa(students, marks) {
+  const cols = [], idx = {};
+  marks.forEach(([st, sub, exam, score, max]) => { const k = sub + "|" + exam; if (!(k in idx)) { idx[k] = cols.length; cols.push({ sub, exam, max }); } });
+  const rows = students.map((stu) => { const r = new Array(cols.length).fill(""); return { stu, r }; });
+  const at = {}; rows.forEach((x) => { at[x.stu.studentId] = x.r; });
+  marks.forEach(([st, sub, exam, score]) => { if (at[st]) at[st][idx[sub + "|" + exam]] = score; });
+  return { cols, head: ["Roll", "Name", ...cols.map((c) => `${c.sub} ${c.exam} (/${c.max})`)], rows: rows.map((x) => [x.stu.rollNo, x.stu.name, ...x.r]) };
+}
+let mkData = null;
+async function loadMarks() {
+  const cls = $("mk-class").value; say($("mk-msg"), "");
+  mkData = await api("/api/admin/marks?class=" + encodeURIComponent(cls));
+  const m = marksAoa(mkData.students, mkData.marks);
+  $("mk-head").innerHTML = `<tr>${m.head.map((h) => `<th>${esc(h)}</th>`).join("")}</tr>`;
+  $("mk-body").innerHTML = m.rows.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("") || `<tr><td>No students.</td></tr>`;
+  if (!m.cols.length) say($("mk-msg"), "No marks have been entered for this class yet.");
+}
+$("mk-class").onchange = () => loadMarks().catch((e) => say($("mk-msg"), e.message, "err"));
+$("mk-xls").onclick = () => {
+  if (!mkData) return;
+  const m = marksAoa(mkData.students, mkData.marks), wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([m.head, ...m.rows]), "Marks");
+  XLSX.writeFile(wb, `marks_${$("mk-class").value.replace(/ /g, "_")}_${today10()}.xlsx`);
+};
+
+// student progress sheet
+let spHtml = "";
+function fillStudents() {
+  const cls = $("sp-class").value;
+  $("sp-stu").innerHTML = students.filter((x) => x.class === cls).map((x) => `<option value="${esc(x.studentId)}">${esc(x.rollNo)} ${esc(x.name)}</option>`).join("");
+}
+$("sp-class").onchange = fillStudents;
+$("sp-show").onclick = async () => {
+  const id = $("sp-stu").value, msg = $("sp-msg"); if (!id) return say(msg, "Choose a student.", "err");
+  say(msg, "Loading...");
+  try {
+    const r = await api("/api/admin/student-report?studentId=" + encodeURIComponent(id)); say(msg, "");
+    const st = r.student, o = r.overall, ov = pct(o.present, o.total), by = {};
+    r.marks.forEach((m) => { (by[m.subject] ||= []).push(m); });
+    spHtml = `<h1>DIET Serchhip: Student progress sheet</h1>
+      <p><b>${esc(st.name)}</b><br>${esc(st.class)} &middot; Roll ${esc(st.rollNo)}${st.batch ? " &middot; Batch " + esc(st.batch) : ""} &middot; ID ${esc(st.studentId)}</p>
+      <h2>Attendance</h2><table><tr><th>Subject</th><th>Attended</th><th>Total</th><th>%</th></tr>${r.attendance.map((x) => { const v = pct(x.present, x.total); return `<tr><td>${esc(x.name)}${x.optional ? " (optional)" : ""}</td><td>${x.present}</td><td>${x.total}</td><td class="${v !== null && v < 80 ? "low" : ""}">${v === null ? "-" : v + "%"}</td></tr>`; }).join("")}
+      <tr><th>Overall</th><th>${o.present}</th><th>${o.total}</th><th class="${ov !== null && ov < 80 ? "low" : ""}">${ov === null ? "-" : ov + "%"}</th></tr></table>
+      <h2>Marks</h2>${Object.keys(by).length ? `<table><tr><th>Subject</th><th>Exam</th><th>Marks</th></tr>${Object.entries(by).map(([sub, ms]) => ms.map((m, i) => `<tr><td>${i ? "" : esc(sub)}</td><td>${esc(m.exam)}</td><td>${m.score} / ${m.max}</td></tr>`).join("")).join("")}</table>` : "<p>No marks entered yet.</p>"}
+      <h2>Earlier semesters</h2>${r.past.length ? `<table><tr><th>Semester</th><th>Subject</th><th>Internal</th><th>External</th><th>Status</th></tr>${r.past.map((x) => `<tr><td>${esc(x.semester)}</td><td>${esc(x.name || x.subjectId)}</td><td>${x.io ?? "-"} / ${x.ifull ?? "-"}</td><td>${x.eo ?? "-"} / ${x.efull ?? "-"}</td><td>${esc(x.status || "")}</td></tr>`).join("")}</table>` : "<p>No earlier results on record.</p>"}
+      <p><small>Printed ${new Date().toLocaleDateString("en-GB")}</small></p>`;
+    $("sp-sheet").innerHTML = `<div style="border:1px solid var(--line);border-radius:8px;padding:12px;margin-top:10px;overflow:auto">${spHtml}</div>`;
+    $("sp-print").classList.remove("hidden");
+  } catch (e) { say(msg, e.message, "err"); }
+};
+$("sp-print").onclick = () => printHtml("Student progress sheet", spHtml);
+
+// teacher monitoring
+const longDate = (d) => new Date(d + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+$("mon-go").onclick = async () => {
+  const msg = $("mon-msg"); say(msg, "Checking...");
+  try {
+    const f = $("mon-from").value, t = $("mon-to").value;
+    const r = await api("/api/admin/monitor?" + (f ? "from=" + f + "&" : "") + (t ? "to=" + t : ""));
+    say(msg, `Checked ${longDate(r.from)} to ${longDate(r.to)}.`, "ok");
+    $("mon-out").innerHTML = r.teachers.map((x) => `<div style="border-top:1px solid var(--line);padding:8px 0"><b>${esc(x.teacher)}</b>
+      <span class="muted"> &mdash; ${x.marked} of ${x.expected} classes marked${x.missing.length ? `, <b style="color:var(--danger)">${x.missing.length} missing</b>` : ""}</span>
+      ${x.missing.length ? `<ul style="margin:6px 0 0;padding-left:18px">${x.missing.map((m) => `<li>${longDate(m.date)}, period ${m.period}: ${esc(m.subject)} (${esc(m.class)})</li>`).join("")}</ul>` : ""}</div>`).join("") || `<p class="muted">No timetabled classes fall in this range. Set the timetable first.</p>`;
+  } catch (e) { say(msg, e.message, "err"); }
+};
+
+// semester archive
+$("arc-btn").onclick = async () => {
+  const msg = $("arc-msg"), pick = $("arc-class").value, list = pick ? [pick] : ["I Sem", "II Sem", "III Sem", "IV Sem"];
+  $("arc-btn").disabled = true; const wb = XLSX.utils.book_new(), used = new Set(); let any = false;
+  try {
+    for (const cls of list) {
+      say(msg, `Collecting ${cls}...`);
+      const d = await api("/api/admin/archive?class=" + encodeURIComponent(cls)), tag = cls.replace(" Sem", "");
+      if (!d.students.length && !d.sessions.length) continue;
+      any = true;
+      const subOf = {}; d.sessions.forEach((x) => { subOf[x.id] = x.sub; });
+      const by = {}; d.att.forEach(([sid, st, p]) => { const k = st + "|" + subOf[sid], c = (by[k] ||= [0, 0]); c[0] += p; c[1]++; });
+      const head = ["Roll", "Name", ...d.subjects.flatMap((x) => [x.subjectId + " attended", x.subjectId + " held", x.subjectId + " %"]), "Total attended", "Total held", "Overall %"];
+      const rows = d.students.map((st) => { let P = 0, T = 0;
+        const cs = d.subjects.flatMap((x) => { const c = by[st.studentId + "|" + x.subjectId]; if (!c) return ["", "", ""]; P += c[0]; T += c[1]; return [c[0], c[1], pct(c[0], c[1])]; });
+        return [st.rollNo, st.name, ...cs, P, T, pct(P, T) ?? ""]; });
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([head, ...rows]), safeSheet(tag + " Summary", used));
+      const m = marksAoa(d.students, d.marks);
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([m.head, ...m.rows]), safeSheet(tag + " Marks", used));
+      for (const sub of d.subjects) {
+        const ses = d.sessions.filter((x) => x.sub === sub.subjectId); if (!ses.length) continue;
+        const cell = {}; d.att.forEach(([sid, st, p]) => { if (subOf[sid] === sub.subjectId) cell[sid + "|" + st] = p; });
+        const h = ["Roll", "Name", ...ses.map((x) => `${x.date.slice(8)}-${x.date.slice(5, 7)} P${x.period}`), "Held", "Attended", "%"];
+        const rs = d.students.map((st) => { let hd = 0, a = 0;
+          const cs = ses.map((x) => { const v = cell[x.id + "|" + st.studentId]; if (v === undefined) return "-"; hd++; if (v) a++; return v ? "P" : "A"; });
+          return [st.rollNo, st.name, ...cs, hd, a, hd ? Math.round((a / hd) * 1000) / 10 : ""]; });
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([h, ...rs]), safeSheet(tag + " " + sub.subjectId, used));
+      }
+    }
+    if (!any) return say(msg, "There is nothing to archive yet.", "err");
+    XLSX.writeFile(wb, `DIET_archive_${(pick || "all_classes").replace(/ /g, "_")}_${today10()}.xlsx`);
+    say(msg, "Downloaded. Keep this file safe before you clear or promote.", "ok");
+  } catch (e) { say(msg, e.message, "err"); }
+  $("arc-btn").disabled = false;
+};
+
+document.querySelector('#tabs [data-t="reports"]').addEventListener("click", () => { fillStudents(); loadMarks().catch((e) => say($("mk-msg"), e.message, "err")); });
 
 // ---------- start ----------
 await Promise.all([loadStudents(), loadTeachers(), loadSubjects(), loadTimetable()]);
